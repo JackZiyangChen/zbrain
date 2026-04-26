@@ -1,0 +1,35 @@
+{
+  "name": "zbrain",
+  "version": "0.1.0",
+  "description": "Personal-Notion-for-agents — typed, semantic, lineage-aware second brain exposed via MCP",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/server.ts",
+    "spike:vec": "bun run scripts/spike-vec.ts",
+    "spike:openclaw": "bash scripts/spike-openclaw.sh",
+    "test": "bun test",
+    "test:e2e": "bun test tests/e2e",
+    "eval:dream": "bun test tests/evals/dream-prompt.eval.ts"
+  },
+  "bin": {
+    "zbrain": "./bin/zbrain"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "chokidar": "^4.0.0",
+    "gpt-tokenizer": "^2.5.0",
+    "gray-matter": "^4.0.3",
+    "marked": "^15.0.0",
+    "openai": "^4.70.0",
+    "sqlite-vec": "^0.1.6"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}

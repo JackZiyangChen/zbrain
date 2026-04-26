@@ -1,0 +1,25 @@
+node_modules/
+bun.lockb
+bun.lock
+dist/
+*.log
+
+# Env (commit only .env.example)
+.env
+.env.*
+!.env.example
+
+# zbrain runtime data
+.zbrain/index.db
+.zbrain/index.db-wal
+.zbrain/index.db-shm
+.zbrain/dream-proposals/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
