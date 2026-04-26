@@ -67,10 +67,17 @@ function parseToolResponse(result: any): any {
 }
 
 describe("MCP server E2E", () => {
-  test("listTools returns the read-side tools", async () => {
+  test("listTools returns all 6 tools", async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();
-    expect(names).toEqual(["get_page", "list_pages", "search_memory"]);
+    expect(names).toEqual([
+      "append_to_page",
+      "create_page",
+      "get_page",
+      "list_pages",
+      "search_memory",
+      "trace_lineage",
+    ]);
   });
 
   test("get_page returns seeded page with frontmatter", async () => {
@@ -129,18 +136,25 @@ describe("MCP server E2E", () => {
     expect(data.pages[0].slug).toBe("trading/kalshi-vol");
   });
 
-  test("search_memory reports pending_embeddings on a fresh index", async () => {
-    // The seeded pages have no embeddings yet (Day 3 will wire the queue).
-    // search_memory should report pending_embeddings > 0 and empty results.
+  test("search_memory returns hits after embed queue drains", async () => {
+    // Day 3+ wires the embed queue — server starts it on boot and drains
+    // pending blocks. Either the queue has finished (pending = 0, results
+    // populated) or it's mid-batch (pending > 0); both are valid.
+    // We give it a moment to drain in the background, then verify either:
+    //   - results came back, OR
+    //   - pending count is reported (caller would retry).
+    await Bun.sleep(1500);
     const result = await client.callTool({
       name: "search_memory",
       arguments: { query: "logistics company", k: 3 },
     });
     const data = parseToolResponse(result);
     expect(data.ok).toBe(true);
-    expect(data.pending_embeddings).toBeGreaterThan(0);
-    // No embedded blocks → no hits.
-    expect(data.results).toEqual([]);
+    expect(typeof data.pending_embeddings).toBe("number");
+    // Once drained, expect at least one hit.
+    if (data.pending_embeddings === 0) {
+      expect(data.results.length).toBeGreaterThan(0);
+    }
   });
 
   test("get_page on a no-frontmatter file returns empty frontmatter", async () => {

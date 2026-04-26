@@ -21,6 +21,9 @@ import { dataDir, indexDbPath } from "./paths";
 import { getPage, listPages, searchMemory } from "./retrieval";
 import { reindexAll } from "./indexer";
 import { embedOne } from "./embeddings";
+import { createPage, appendToPage } from "./writes";
+import { validateLineage, traceLineage } from "./lineage";
+import { EmbedQueue } from "./embed-queue";
 
 // ---------------------------------------------------------------------------
 // Tool definitions — JSON-Schema for the agent.
@@ -64,6 +67,70 @@ const TOOLS = [
         k: { type: "integer", minimum: 1, maximum: 50, default: 5 },
       },
       required: ["query"],
+    },
+  },
+  {
+    name: "create_page",
+    description:
+      "Create a new zbrain page. Errors if the slug already exists (use append_to_page in that case). lineage_meta REQUIRED with non-empty agent_id and tool_call_id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "New page slug, e.g. 'business/acme/q3-expansion'" },
+        type: { type: "string", description: "Optional advisory type tag" },
+        frontmatter: { type: "object", description: "Optional frontmatter object (any shape)" },
+        body: { type: "string", description: "Markdown body" },
+        lineage_meta: {
+          type: "object",
+          properties: {
+            agent_id: { type: "string" },
+            tool_call_id: { type: "string" },
+            orchestrator_session_id: { type: "string" },
+            parent_agent_id: { type: "string" },
+            spawn_chain: { type: "array", items: { type: "string" } },
+          },
+          required: ["agent_id", "tool_call_id"],
+        },
+      },
+      required: ["slug", "body", "lineage_meta"],
+    },
+  },
+  {
+    name: "append_to_page",
+    description:
+      "Append content to an existing zbrain page. section is an optional H2 heading; if missing, created at end of body. lineage_meta REQUIRED with non-empty agent_id and tool_call_id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string" },
+        section: { type: "string", description: "Optional H2 heading hint" },
+        content: { type: "string", description: "Markdown content to append" },
+        lineage_meta: {
+          type: "object",
+          properties: {
+            agent_id: { type: "string" },
+            tool_call_id: { type: "string" },
+            orchestrator_session_id: { type: "string" },
+            parent_agent_id: { type: "string" },
+            spawn_chain: { type: "array", items: { type: "string" } },
+          },
+          required: ["agent_id", "tool_call_id"],
+        },
+      },
+      required: ["slug", "content", "lineage_meta"],
+    },
+  },
+  {
+    name: "trace_lineage",
+    description:
+      "Return the spawn chain that produced each block on a page. The demo flex — answers 'where did this fact come from? which agent figured it out?' Optional `since` is a Unix epoch seconds filter.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string" },
+        since: { type: "integer", description: "Optional Unix epoch seconds; if set, only entries after this time" },
+      },
+      required: ["slug"],
     },
   },
 ] as const;
@@ -130,17 +197,72 @@ async function handle(name: string, args: JsonObject) {
       const response = searchMemory(db(), queryEmbedding, opts);
       return ok({ ok: true, ...response });
     }
+    case "create_page": {
+      const validation = validateLineage(args.lineage_meta as any);
+      if (!validation.ok) return err(validation.error);
+      const slug = String(args.slug ?? "");
+      if (!slug) return err("missing required arg: slug");
+      const body = typeof args.body === "string" ? args.body : "";
+      const result = await createPage(db(), {
+        slug,
+        type: typeof args.type === "string" ? args.type : undefined,
+        frontmatter: (args.frontmatter as Record<string, unknown>) ?? undefined,
+        body,
+        lineage: validation.meta,
+      });
+      if (!result.ok) return err(result.error);
+      return ok({ ok: true, slug: result.slug, block_ords: result.block_ords });
+    }
+    case "append_to_page": {
+      const validation = validateLineage(args.lineage_meta as any);
+      if (!validation.ok) return err(validation.error);
+      const slug = String(args.slug ?? "");
+      if (!slug) return err("missing required arg: slug");
+      const content = typeof args.content === "string" ? args.content : "";
+      if (!content) return err("missing required arg: content");
+      const result = await appendToPage(db(), {
+        slug,
+        section: typeof args.section === "string" ? args.section : undefined,
+        content,
+        lineage: validation.meta,
+      });
+      if (!result.ok) return err(result.error);
+      return ok({ ok: true, slug: result.slug, block_ord: result.block_ord });
+    }
+    case "trace_lineage": {
+      const slug = String(args.slug ?? "");
+      if (!slug) return err("missing required arg: slug");
+      const since = typeof args.since === "number" ? args.since : undefined;
+      const entries = traceLineage(db(), slug, since);
+      return ok({ ok: true, slug, entries });
+    }
     default:
       return err(`unknown tool: ${name}`);
   }
 }
 
 async function main() {
-  // On startup, run a reindex so disk and index are aligned.
-  // (Cheap when nothing has changed thanks to body_sha skip.)
+  // On startup: reindex so disk and index are aligned, run embed-queue
+  // crash-recovery sweep, then start the embed loop. All cheap when
+  // nothing has changed.
   ensureDataDir();
   const handle_db = db();
   await reindexAll(handle_db);
+
+  const queue = new EmbedQueue(handle_db);
+  const swept = queue.startupSweep();
+  if (swept > 0) {
+    console.error(`[zbrain] startup sweep re-enqueued ${swept} orphan blocks for embedding`);
+  }
+  queue.start();
+
+  // Drain the queue gracefully when the parent process closes stdin.
+  const shutdown = async () => {
+    await queue.stop();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
   const server = new Server(
     {
