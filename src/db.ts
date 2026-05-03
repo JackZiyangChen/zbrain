@@ -21,36 +21,68 @@ const SCHEMA_PATH = join(__dirname, "schema.sql");
 let customSqliteApplied = false;
 
 /**
- * Locate a libsqlite3.dylib that has SQLITE_OMIT_LOAD_EXTENSION OFF.
- * Bun's bundled sqlite has it ON, as does macOS system sqlite.
- * Homebrew's sqlite is the standard fix.
+ * Locate a libsqlite3 that has SQLITE_OMIT_LOAD_EXTENSION OFF.
+ * Bun's bundled sqlite has it ON on every platform, so we always have to
+ * point it at a system-provided libsqlite3. Probe order:
+ *   1. ZBRAIN_SQLITE_LIB override (any platform).
+ *   2. macOS — Homebrew sqlite (`brew --prefix sqlite`/lib/libsqlite3.dylib),
+ *      then standard arm64 / Intel-Rosetta fallback paths.
+ *   3. Linux — /usr/lib/<arch>-linux-gnu/libsqlite3.so.0 (Debian/Ubuntu glibc),
+ *      then /usr/lib/libsqlite3.so / /usr/lib64/libsqlite3.so.0 (RHEL-ish).
  */
 export function findSqliteLib(): string {
   const override = process.env.ZBRAIN_SQLITE_LIB;
   if (override && existsSync(override)) return override;
 
-  try {
-    const prefix = execSync("brew --prefix sqlite 2>/dev/null", { encoding: "utf8" }).trim();
-    if (prefix) {
-      const libPath = `${prefix}/lib/libsqlite3.dylib`;
-      if (existsSync(libPath)) return libPath;
+  if (process.platform === "darwin") {
+    try {
+      const prefix = execSync("brew --prefix sqlite 2>/dev/null", { encoding: "utf8" }).trim();
+      if (prefix) {
+        const libPath = `${prefix}/lib/libsqlite3.dylib`;
+        if (existsSync(libPath)) return libPath;
+      }
+    } catch {
+      // brew not on PATH — try fallback paths
     }
-  } catch {
-    // brew not on PATH — try fallback paths
+    const macFallbacks = [
+      "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib",
+      "/usr/local/opt/sqlite/lib/libsqlite3.dylib",
+    ];
+    for (const p of macFallbacks) {
+      if (existsSync(p)) return p;
+    }
+    throw new Error(
+      "Could not locate a libsqlite3 with extension loading enabled.\n" +
+      "Run: brew install sqlite\n" +
+      "Or set ZBRAIN_SQLITE_LIB to an explicit path.",
+    );
   }
 
-  const fallbacks = [
-    "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib",
-    "/usr/local/opt/sqlite/lib/libsqlite3.dylib",
-  ];
-  for (const p of fallbacks) {
-    if (existsSync(p)) return p;
+  if (process.platform === "linux") {
+    const archDir = process.arch === "arm64" ? "aarch64-linux-gnu" : "x86_64-linux-gnu";
+    const linuxCandidates = [
+      `/usr/lib/${archDir}/libsqlite3.so.0`,
+      `/usr/lib/${archDir}/libsqlite3.so`,
+      "/usr/lib/libsqlite3.so.0",
+      "/usr/lib/libsqlite3.so",
+      "/usr/lib64/libsqlite3.so.0",
+      "/usr/lib64/libsqlite3.so",
+    ];
+    for (const p of linuxCandidates) {
+      if (existsSync(p)) return p;
+    }
+    throw new Error(
+      "Could not locate a libsqlite3 with extension loading enabled.\n" +
+      "Debian/Ubuntu: apt-get install -y libsqlite3-0 libsqlite3-dev\n" +
+      "RHEL/Fedora:  dnf install -y sqlite-libs sqlite-devel\n" +
+      "Alpine:        apk add sqlite-libs sqlite-dev (note: musl-built; sqlite-vec prebuilt is glibc — use a glibc base image)\n" +
+      "Or set ZBRAIN_SQLITE_LIB to an explicit path.",
+    );
   }
 
   throw new Error(
-    "Could not locate a libsqlite3 with extension loading enabled.\n" +
-    "Run: brew install sqlite\n" +
-    "Or set ZBRAIN_SQLITE_LIB to an explicit path.",
+    `Unsupported platform '${process.platform}'. zbrain v1 supports darwin and linux.\n` +
+    "Set ZBRAIN_SQLITE_LIB to an explicit libsqlite3 path to force-resolve.",
   );
 }
 

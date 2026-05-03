@@ -13,9 +13,13 @@ This document covers v1.
 
 ### Prerequisites
 
-- macOS (Linux works in principle but is untested for the libsqlite3 path).
+- macOS or Linux (the production target — OpenClaw's local sandbox — is Ubuntu).
 - Bun ≥ 1.3.
-- Homebrew sqlite — `brew install sqlite`. Required: Bun's bundled libsqlite3 has `SQLITE_OMIT_LOAD_EXTENSION` so `sqlite-vec` cannot load against it.
+- A system libsqlite3 with extension loading enabled. Bun's bundled libsqlite3 has `SQLITE_OMIT_LOAD_EXTENSION` set on every platform, so zbrain points at a system one via `Database.setCustomSQLite()`. Resolver is auto per-platform; override with `ZBRAIN_SQLITE_LIB`.
+  - **macOS:** `brew install sqlite`
+  - **Debian / Ubuntu:** `apt-get install -y libsqlite3-0 libsqlite3-dev`
+  - **RHEL / Fedora:** `dnf install -y sqlite-libs sqlite-devel`
+  - **Alpine:** not recommended — `sqlite-vec`'s prebuilt `.so` is glibc-linked. Use a glibc base image (Debian/Ubuntu) for containerized deploys.
 - An OpenAI API key (embeddings) and either an Anthropic or OpenAI key (dream).
 
 ### Install
@@ -154,6 +158,6 @@ The intended cloud topology, captured here so it's not lost:
 - Shared bind-mounted volume for `pages/` (markdown) and `.zbrain/` (SQLite).
 - Network egress allowed for embedding + dream LLM calls.
 - Lineage env vars flow gateway → sandbox container → zbrain container via `docker compose` env.
-- `Dockerfile` based on `oven/bun:1.3-alpine` + a build step that `apk add sqlite-dev` and copies the extension-loading-enabled libsqlite3 into the image (sidesteps the macOS Homebrew dependency on Linux).
+- `Dockerfile` based on `oven/bun:1.3-debian` (NOT alpine — `sqlite-vec`'s prebuilt binary is glibc-linked, alpine is musl). Build step: `apt-get install -y libsqlite3-0 libsqlite3-dev`. The Linux resolver in `src/db.ts` finds `/usr/lib/<arch>-linux-gnu/libsqlite3.so.0` automatically.
 
 This is logged as a v2 idea in `BACKLOG.md` and gated on Spike B.

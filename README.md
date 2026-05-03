@@ -23,15 +23,23 @@ Every coding-agent host today has session-local memory and forgets everything be
 
 Bun ≥ 1.3 · `bun:sqlite` (NOT better-sqlite3) · sqlite-vec 0.1.9+ · `marked` + `gray-matter` · `@modelcontextprotocol/sdk` · `gpt-tokenizer` · `bun test`.
 
-> ⚠️ **macOS prerequisite.** Bun's bundled libsqlite3 has `SQLITE_OMIT_LOAD_EXTENSION`. You must `brew install sqlite` and let zbrain point at it via `Database.setCustomSQLite()`. Auto-resolved on first run; override with `ZBRAIN_SQLITE_LIB`.
+> ⚠️ **libsqlite3 prerequisite.** Bun's bundled libsqlite3 has `SQLITE_OMIT_LOAD_EXTENSION` set on every platform, so zbrain points it at a system-provided libsqlite3 via `Database.setCustomSQLite()`. Auto-resolved on first run; override with `ZBRAIN_SQLITE_LIB`. Per-platform install:
+> - **macOS:** `brew install sqlite` (Homebrew lib is auto-detected)
+> - **Debian / Ubuntu:** `apt-get install -y libsqlite3-0 libsqlite3-dev`
+> - **RHEL / Fedora:** `dnf install -y sqlite-libs sqlite-devel`
+> - **Alpine:** workable but not recommended — `sqlite-vec`'s prebuilt binary is glibc-linked. Use a glibc base image (Debian/Ubuntu) for the OpenClaw container.
 
 ---
 
 ## Install
 
 ```bash
-brew install sqlite                                  # one-time prereq
-git clone https://github.com/jackchen/zbrain.git
+# 1. Install a libsqlite3 with extension loading enabled (see prerequisite above)
+#    macOS:        brew install sqlite
+#    Ubuntu/Deb:   sudo apt-get install -y libsqlite3-0 libsqlite3-dev
+#    RHEL/Fedora:  sudo dnf install -y sqlite-libs sqlite-devel
+
+git clone https://github.com/JackZiyangChen/zbrain.git
 cd zbrain
 bun install
 cp .env.example .env                                 # fill in API keys
