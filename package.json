@@ -4,6 +4,7 @@
   "description": "Personal-Notion-for-agents — typed, semantic, lineage-aware second brain exposed via MCP",
   "type": "module",
   "private": true,
+  "license": "GPL-2.0-only",
   "scripts": {
     "dev": "bun run src/server.ts",
     "spike:vec": "bun run scripts/spike-vec.ts",

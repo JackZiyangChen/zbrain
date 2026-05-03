@@ -109,4 +109,4 @@ bun run eval:dream        # dream-prompt regression gate (run before any prompt 
 
 ## License
 
-Personal project; no license declared. Don't redistribute without asking.
+[GPL-2.0](./LICENSE). zbrain is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License version 2 as published by the Free Software Foundation. Modifications and derivative works must remain GPL-2.0.
