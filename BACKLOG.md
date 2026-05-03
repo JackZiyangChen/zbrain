@@ -1,15 +1,15 @@
 # BACKLOG
 
 ## Features
-- [ ] Day 0 Spike A: sqlite-vec extension load on macOS arm64 + Bun
+- [x] Day 0 Spike A: sqlite-vec extension load on macOS arm64 + Bun
 - [ ] Day 0 Spike B: OpenClaw env-var injection capability verification
-- [ ] Day 1: schema.sql + bun:sqlite + sqlite-vec integration + indexer
-- [ ] Day 2: MCP server reads (get_page, list_pages, search_memory) + demo path stub
-- [ ] Day 3: MCP server writes (create_page, append_to_page) + lineage validation + atomic file writes + trace_lineage + embed-queue
-- [ ] Day 4: dream pipeline (offline batch, no MCP wrapper)
-- [ ] Day 5: identity prompt + OpenClaw wiring (SOUL.md + TOOL.md slices) + bin/zbrain init + lineage E2E
+- [x] Day 1: schema.sql + bun:sqlite + sqlite-vec integration + indexer
+- [x] Day 2: MCP server reads (get_page, list_pages, search_memory) + demo path stub
+- [x] Day 3: MCP server writes (create_page, append_to_page) + lineage validation + atomic file writes + trace_lineage + embed-queue
+- [x] Day 4: dream pipeline (offline batch, no MCP wrapper)
+- [x] Day 5: identity prompt + OpenClaw wiring (SOUL.md + TOOL.md slices) + bin/zbrain init + lineage E2E (CLI: init/dream/trace/dream-review/doctor)
 - [ ] Day 6: dream-review CLI + trace CLI + doctor + tests + identity iteration
-- [ ] Day 7: README + 30s demo gif + buffer/bug fixes
+- [x] Day 7: README + .env.example + DEPLOY.md (30s demo gif deferred — needs live recording)
 - [ ] OpenClaw bridge: file watcher on ~/.openclaw/workspace/memory/ → sentinel-attributed ingest
 
 ## Tech Debt

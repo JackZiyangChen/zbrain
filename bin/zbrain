@@ -1,0 +1,274 @@
+#!/usr/bin/env bun
+/**
+ * zbrain CLI — init / dream / trace / dream-review / doctor.
+ *
+ * `init`        Scaffold pages/zbrain/{identity,dream-prompt,soul,tool}.md and .zbrain/.
+ * `dream`       Run the dream pipeline once for today (or --date YYYY-MM-DD).
+ * `trace`       Print the lineage / spawn chain for a page slug.
+ * `dream-review` Interactive triage of pending proposals for a date.
+ * `doctor`      Cheap parity + integrity check.
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, copyFileSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { openDb } from "../src/db";
+import { dataDir, dreamProposalsDir, indexDbPath, pagesDir, slugToPath, zbrainHome } from "../src/paths";
+import { traceLineage } from "../src/lineage";
+import { runDream, loadProposals, saveProposals, applyProposal } from "../src/dream";
+
+const args = process.argv.slice(2);
+const cmd = args[0];
+
+function repoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+async function main() {
+  switch (cmd) {
+    case "init":
+      return cmdInit();
+    case "dream":
+      return cmdDream(args.slice(1));
+    case "trace":
+      return cmdTrace(args.slice(1));
+    case "dream-review":
+      return cmdDreamReview(args.slice(1));
+    case "doctor":
+      return cmdDoctor();
+    case "help":
+    case "--help":
+    case "-h":
+    case undefined:
+      printHelp();
+      return;
+    default:
+      console.error(`unknown command: ${cmd}\n`);
+      printHelp();
+      process.exit(1);
+  }
+}
+
+function printHelp() {
+  console.log(`zbrain — personal-Notion-for-agents
+
+Usage:
+  zbrain init                       Scaffold pages/zbrain/ + .zbrain/ in $ZBRAIN_HOME (or cwd)
+  zbrain dream [--date YYYY-MM-DD]  Run the dream consolidation pipeline
+  zbrain trace <slug> [--since N]   Print the lineage / spawn chain for a page
+  zbrain dream-review [--date D]    Triage pending dream proposals interactively
+  zbrain doctor                     Quick parity + integrity check
+  zbrain help                       Print this message
+
+Env:
+  ZBRAIN_HOME                       Override the install root (default: cwd / repo root)
+  ZBRAIN_DREAM_LLM                  anthropic | openai | fake (default: anthropic)
+  ZBRAIN_ORCHESTRATOR_SESSION_ID    Server-injected lineage default
+  ZBRAIN_PARENT_AGENT_ID            Server-injected lineage default
+  ZBRAIN_SPAWN_CHAIN                JSON array string of agent ids (server default)
+`);
+}
+
+// ---------------------------------------------------------------------------
+// init
+// ---------------------------------------------------------------------------
+
+function cmdInit() {
+  const home = zbrainHome();
+  console.log(`Initializing zbrain at ${home}`);
+  mkdirSync(join(home, "pages", "zbrain"), { recursive: true });
+  mkdirSync(dataDir(), { recursive: true });
+  mkdirSync(dreamProposalsDir(), { recursive: true });
+
+  const seedFiles = ["identity.md", "dream-prompt.md", "soul.md", "tool.md"];
+  const seedSrc = join(repoRoot(), "pages", "zbrain");
+  for (const fname of seedFiles) {
+    const dest = join(home, "pages", "zbrain", fname);
+    const src = join(seedSrc, fname);
+    if (existsSync(dest)) {
+      console.log(`  skip (exists): pages/zbrain/${fname}`);
+      continue;
+    }
+    if (!existsSync(src)) {
+      console.log(`  skip (no source): pages/zbrain/${fname}`);
+      continue;
+    }
+    copyFileSync(src, dest);
+    console.log(`  wrote: pages/zbrain/${fname}`);
+  }
+
+  // Bootstrap the SQLite index so MCP server starts cleanly the first time.
+  const db = openDb(indexDbPath());
+  db.close();
+  console.log(`  index: ${indexDbPath()}`);
+  console.log("Done.");
+}
+
+// ---------------------------------------------------------------------------
+// dream
+// ---------------------------------------------------------------------------
+
+async function cmdDream(rest: string[]) {
+  const date = pickArg(rest, "--date");
+  const db = openDb(indexDbPath());
+  try {
+    const result = await runDream(db, { date });
+    console.log(JSON.stringify({
+      ok: true,
+      date: result.date,
+      dream_slug: result.dream_slug,
+      proposals_path: result.proposals_path,
+      proposals_count: result.proposals.length,
+      truncated: result.truncated,
+      input_tokens: result.input_tokens,
+      output_tokens: result.output_tokens,
+    }, null, 2));
+  } finally {
+    db.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// trace
+// ---------------------------------------------------------------------------
+
+function cmdTrace(rest: string[]) {
+  const slug = rest.find((a) => !a.startsWith("--"));
+  if (!slug) {
+    console.error("usage: zbrain trace <slug> [--since <unix-epoch-s>]");
+    process.exit(1);
+  }
+  const since = pickArg(rest, "--since");
+  const db = openDb(indexDbPath());
+  try {
+    const entries = traceLineage(db, slug, since ? Number(since) : undefined);
+    if (entries.length === 0) {
+      console.log(`(no lineage for slug=${slug})`);
+      return;
+    }
+    for (const e of entries) {
+      const chain = e.spawn_chain.length > 0 ? e.spawn_chain.join(" → ") : "(no chain)";
+      const ts = new Date(e.ts * 1000).toISOString();
+      console.log(`${ts}  block#${e.block_ord}  ${e.agent_id}  parent=${e.parent_agent_id}  chain=${chain}  tool_call=${e.tool_call_id}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// dream-review (minimal interactive triage)
+// ---------------------------------------------------------------------------
+
+async function cmdDreamReview(rest: string[]) {
+  const date = pickArg(rest, "--date") ?? new Date().toISOString().slice(0, 10);
+  const proposals = loadProposals(date);
+  const pending = proposals.filter((p) => p.status === "pending");
+  if (pending.length === 0) {
+    console.log(`(no pending proposals for ${date})`);
+    return;
+  }
+  console.log(`${pending.length} pending proposal(s) for ${date}.`);
+  console.log("Run with --apply <idx> to accept, --reject <idx> to reject, --list to print.");
+
+  if (rest.includes("--list")) {
+    for (const p of pending) {
+      console.log(`\n[${p.idx}] ${p.slug} — ${p.reason}`);
+      console.log(p.content);
+    }
+    return;
+  }
+
+  const applyIdx = pickArg(rest, "--apply");
+  const rejectIdx = pickArg(rest, "--reject");
+
+  if (applyIdx !== undefined) {
+    const idx = Number(applyIdx);
+    const p = proposals.find((x) => x.idx === idx);
+    if (!p) {
+      console.error(`no proposal with idx=${idx}`);
+      process.exit(1);
+    }
+    const db = openDb(indexDbPath());
+    try {
+      const result = await applyProposal(db, date, p);
+      if (!result.ok) {
+        console.error(`apply failed: ${result.error}`);
+        process.exit(1);
+      }
+      p.status = "accepted";
+      saveProposals(date, proposals);
+      console.log(`accepted proposal ${idx} → ${p.slug} block#${result.block_ord}`);
+    } finally {
+      db.close();
+    }
+    return;
+  }
+
+  if (rejectIdx !== undefined) {
+    const idx = Number(rejectIdx);
+    const p = proposals.find((x) => x.idx === idx);
+    if (!p) {
+      console.error(`no proposal with idx=${idx}`);
+      process.exit(1);
+    }
+    p.status = "rejected";
+    saveProposals(date, proposals);
+    console.log(`rejected proposal ${idx} → ${p.slug}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// doctor — parity + integrity check
+// ---------------------------------------------------------------------------
+
+function cmdDoctor() {
+  const home = zbrainHome();
+  console.log(`zbrain home: ${home}`);
+  const issues: string[] = [];
+
+  if (!existsSync(pagesDir())) issues.push(`missing pages/ directory: ${pagesDir()}`);
+  if (!existsSync(dataDir())) issues.push(`missing .zbrain/ directory: ${dataDir()}`);
+
+  for (const required of ["identity.md", "dream-prompt.md"]) {
+    const path = slugToPath(`zbrain/${required.replace(".md", "")}`);
+    if (!existsSync(path)) issues.push(`missing system page: ${required}`);
+  }
+
+  if (existsSync(indexDbPath())) {
+    const db = openDb(indexDbPath());
+    try {
+      const integrity = db.prepare("PRAGMA integrity_check").get() as Record<string, unknown>;
+      const status = integrity[Object.keys(integrity)[0]!];
+      if (status !== "ok") issues.push(`SQLite integrity_check: ${status}`);
+
+      const pendingRow = db
+        .prepare("SELECT COUNT(*) AS n FROM blocks WHERE embedding_model = 'pending'")
+        .get() as { n: number };
+      const pageRow = db.prepare("SELECT COUNT(*) AS n FROM pages").get() as { n: number };
+      console.log(`pages indexed: ${pageRow.n}`);
+      console.log(`blocks pending embedding: ${pendingRow.n}`);
+    } finally {
+      db.close();
+    }
+  } else {
+    issues.push(`missing index.db (run \`zbrain init\`): ${indexDbPath()}`);
+  }
+
+  if (issues.length === 0) {
+    console.log("All checks passed.");
+    return;
+  }
+  console.log("\nIssues:");
+  for (const i of issues) console.log(`  - ${i}`);
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+
+function pickArg(rest: string[], flag: string): string | undefined {
+  const idx = rest.indexOf(flag);
+  if (idx === -1) return undefined;
+  return rest[idx + 1];
+}
+
+await main();
