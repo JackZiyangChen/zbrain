@@ -10,16 +10,19 @@ A personal-Notion-for-agents: a typed, semantic, lineage-aware second brain expo
 
 Every coding-agent host today has session-local memory and forgets everything between sessions. Notion has structure but nothing knows how to read it. zbrain is the part in the middle: markdown pages on disk (git-friendly, human-editable), a SQLite + `sqlite-vec` index (page-addressed retrieval primary, semantic fallback), and full lineage attribution on every write — so you can ask "which agent figured this out, in which spawn chain?" and get a real answer.
 
-## zbrain vs gbrain
+## zbrain vs [gbrain](https://github.com/garrytan/gbrain)
 
-zbrain owes a real debt to [gbrain](https://github.com/garrytan/gstack) (the memory layer inside Garry Tan's [gstack](https://github.com/garrytan/gstack)) — it's the closest spiritual cousin to this project and the prior art that made "give the agent a real second brain" feel obvious. If you're a human shipping code with Claude Code, you almost certainly want gbrain.
+zbrain is heavily inspired by [gbrain](https://github.com/garrytan/gbrain) (Garry Tan) — a typed, MCP-exposed second brain for AI agents, and the prior art that made the page-shaped, agent-first memory model concrete. Credit where it's due: the named-page schema, the "agents install and operate it themselves" posture, and the OpenClaw-friendly MCP surface all originate there. If gbrain fits your setup, use gbrain.
 
-The two solve adjacent but different problems:
+zbrain takes that shape and makes a few opinionated changes for our use case:
 
-- **gbrain** is optimized for **a human developer using Claude Code**: a per-project learnings/notes store tuned for human-reviewed sessions, tightly integrated with gstack's slash-command workflows.
-- **zbrain** is optimized for **an AI orchestrator (OpenClaw) spawning sub-agents**: the *client* is an agent, not a human. That shifts the design — server-enforced lineage on every write, a frozen MCP tool contract, dream consolidation as a nightly batch job, and a typed page schema so sub-agents can address memory by slug instead of guessing search terms.
+- **SQLite-portable, single-file install.** gbrain runs on PGLite or Supabase Postgres. zbrain runs on `bun:sqlite` + `sqlite-vec` — one `index.db` file, no server, no auth, no migration tool. Trades scale for "clones in 30 seconds and lives next to a markdown tree."
+- **Server-enforced spawn-chain lineage.** Every write requires `agent_id` + `tool_call_id`; the server merges `orchestrator_session_id`, `parent_agent_id`, and `spawn_chain` from env vars and stores them on the row. `trace_lineage(slug)` walks the chain. This is the headline addition — gbrain attributes by source, zbrain attributes by which agent in which spawn tree.
+- **Disk-first writes, markdown as source of truth.** Atomic-rename markdown → SQLite txn → enqueue embedding. Crash-safe; the index can always be rebuilt from `pages/`, and the tree is git-friendly without an export step.
+- **Smaller MCP surface, page-addressed first.** Six tools (`get_page`, `list_pages`, `search_memory`, `create_page`, `append_to_page`, `trace_lineage`) instead of 30+. Agents are nudged to fetch by slug when the slug is known and only fall back to semantic search when it isn't.
+- **Dream consolidation as a built-in nightly batch.** A scheduled LLM pass summarises the day into `pages/dream/<date>.md` and emits append proposals for triage — the only LLM call the system makes on its own.
 
-Different client, different contract. Use gbrain for human-driven coding sessions; reach for zbrain when the readers and writers of the memory are themselves agents.
+Same neighbourhood, narrower scope, different trade-offs. gbrain is the broader, more capable system; zbrain is the small portable one with lineage baked in.
 
 ## What's in the box
 
