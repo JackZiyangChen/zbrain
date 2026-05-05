@@ -10,16 +10,16 @@ A personal-Notion-for-agents: a typed, semantic, lineage-aware second brain expo
 
 Every coding-agent host today has session-local memory and forgets everything between sessions. Notion has structure but nothing knows how to read it. zbrain is the part in the middle: markdown pages on disk (git-friendly, human-editable), a SQLite + `sqlite-vec` index (page-addressed retrieval primary, semantic fallback), and full lineage attribution on every write — so you can ask "which agent figured this out, in which spawn chain?" and get a real answer.
 
-## zbrain vs [gstack](https://github.com/garrytan/gstack)
+## zbrain vs gbrain
 
-zbrain owes a real debt to [gstack](https://github.com/garrytan/gstack) — Garry Tan's skill-and-workflow toolkit for Claude Code is what made the "agents as a stack you build on" mental model concrete in the first place, and gstack's own memory layer (gbrain) is the closest spiritual cousin to this project.
+zbrain owes a real debt to [gbrain](https://github.com/garrytan/gstack) (the memory layer inside Garry Tan's [gstack](https://github.com/garrytan/gstack)) — it's the closest spiritual cousin to this project and the prior art that made "give the agent a real second brain" feel obvious. If you're a human shipping code with Claude Code, you almost certainly want gbrain.
 
 The two solve adjacent but different problems:
 
-- **gstack / gbrain** is optimized for **a human developer using Claude Code**: rich slash-command workflows (`/ship`, `/qa`, `/plan-eng-review`), per-project learnings, telemetry, and a memory store tuned for human-reviewed sessions.
-- **zbrain** is optimized for **an AI orchestrator (OpenClaw) spawning sub-agents**: the *client* is an agent, not a human. That shifts the design — server-enforced lineage on every write, a frozen MCP tool contract, dream consolidation as a batch job, and a typed page schema so sub-agents can address memory by slug instead of guessing search terms.
+- **gbrain** is optimized for **a human developer using Claude Code**: a per-project learnings/notes store tuned for human-reviewed sessions, tightly integrated with gstack's slash-command workflows.
+- **zbrain** is optimized for **an AI orchestrator (OpenClaw) spawning sub-agents**: the *client* is an agent, not a human. That shifts the design — server-enforced lineage on every write, a frozen MCP tool contract, dream consolidation as a nightly batch job, and a typed page schema so sub-agents can address memory by slug instead of guessing search terms.
 
-If you're a human shipping code with Claude Code, you almost certainly want gstack. If you're running an orchestrator that fans out to many agents and needs them to share a durable, attributable second brain, that's where zbrain fits.
+Different client, different contract. Use gbrain for human-driven coding sessions; reach for zbrain when the readers and writers of the memory are themselves agents.
 
 ## What's in the box
 
